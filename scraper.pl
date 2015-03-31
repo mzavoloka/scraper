@@ -1,6 +1,12 @@
 use Modern::Perl;
+use HTTP::Async;
+use HTTP::Request;
+use HTML::TreeBuilder;
+
 
 my $path_to_file_with_queries = $ARGV[ 0 ];
+my $async = HTTP::Async -> new();
+my $link = "google.com/search?q=";
 
 if ( not $path_to_file_with_queries )
 {
@@ -15,22 +21,15 @@ else
 {
     open( my $fh, '<', $path_to_file_with_queries )
         or die "Couldn't open file $path_to_file_with_queries: $!";
-    while ( my $query = <$fh> )
-    {
-        say $query;
-        #&process_query();
-    }
+
+    $async -> add( map { HTTP::Request -> new( $link . $_ ) } <$fh> );
+
     close( $fh );
-}
 
+    while ( my $response = $async -> wait_for_next_response() )
+    {
+        my $tree = HTML::TreeBuilder -> new_from_content( $response -> content() );
+        my @top10 = $tree -> look_down( 'class', 'rc' );
+    }
 
-use LWP::UserAgent;
-my $link = "google.com/search?q=";
-sub process_query
-{
-    my $query = shift;
-
-    my $ua = LWP::UserAgent -> new();
-    $ua -> get( $link . $query );
-    $ua -> response();
 }
