@@ -28,8 +28,42 @@ else
 
     while ( my $response = $async -> wait_for_next_response() )
     {
-        my $tree = HTML::TreeBuilder -> new_from_content( $response -> content() );
-        my @top10 = $tree -> look_down( 'class', 'rc' );
+        &parse( $response );
     }
 
+}
+
+sub parse
+{
+    my $response = shift;
+
+    my $tree = HTML::TreeBuilder -> new_from_content( $response -> content() );
+
+    my @top10_divs = $tree -> look_down( _tag => 'div', class => 'rc' );
+    my @top10_info = ();
+
+    my $i = 1;
+    for my $div ( @top10_divs )
+    {
+        my $a = $div -> look_down( _tag => 'h3', 'class' => 'r' ) -> look_down( _tag => 'a' );
+
+        my $info = {
+            number      => $i++,
+            url         => $a -> attr( 'href' ),
+            title       => $a -> as_text(),
+            description => $div -> look_down( _tag => 'span', 'class' => 'st' ) -> as_text()
+        };
+
+        push( @top10_info, $info );
+    }
+
+    # There may be only 9 results on the first page (example query: "obama"). I think, It's due to images bar.
+    if( @top10_divs < 10 )
+    {
+        my $second_page_exists = $tree -> look_down( _tag => 'table', id => 'nav' );
+        if( $second_page_exists )
+        {
+            $async -> add( HTTP::Request -> new( $link . $_ . '&start=10' ) );
+        }
+    }
 }
