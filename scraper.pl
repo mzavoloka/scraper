@@ -2,6 +2,7 @@ use Modern::Perl;
 use HTTP::Async;
 use HTTP::Request;
 use HTML::TreeBuilder;
+use URI::Escape qw( uri_escape );
 
 
 my $path_to_file_with_queries = $ARGV[ 0 ];
@@ -22,7 +23,7 @@ else
     open( my $fh, '<', $path_to_file_with_queries )
         or die "Couldn't open file $path_to_file_with_queries: $!";
 
-    $async -> add( map { HTTP::Request -> new( $link . $_ ) } <$fh> );
+    $async -> add( map { HTTP::Request -> new( $link . uri_escape( $_ ) ) } <$fh> );
 
     close( $fh );
 
@@ -63,7 +64,7 @@ sub parse
         my $second_page_exists = $tree -> look_down( _tag => 'table', id => 'nav' );
         if( $second_page_exists )
         {
-            $async -> add( HTTP::Request -> new( $link . $_ . '&start=10' ) );
+            $async -> add( HTTP::Request -> new( $response -> base() . '&start=10' ) );
         }
     }
 }
