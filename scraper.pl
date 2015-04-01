@@ -7,6 +7,7 @@ use URI::Escape qw( uri_escape uri_unescape );
 use DBI;
 use List::MoreUtils qw( uniq );
 use Time::HiRes qw( time );
+use DateTime;
 
 
 my $start_time = time;
@@ -81,7 +82,7 @@ sub parse
 
     if( $response -> base() -> as_string() !~ /\?|&q=/ )
     {
-        say "Google weirdly redirected";
+        &log( "Google weirdly redirected" );
     }
     elsif( $parsing_first_page )
     {
@@ -110,7 +111,7 @@ sub parse
     }
     else
     {
-        die 'Unexpected behaviour';
+        &log( "Couldn't process request: " . $response -> base() );
     }
 }
 
@@ -131,7 +132,7 @@ sub parse_li
     }
     else
     {
-        die 'Unexpected behaviour';
+        &log( "Couldn't process li tag with content: " . $li -> as_HTML() );
     }
 }
 
@@ -169,3 +170,14 @@ sub store_search_results
 
     $dbh -> disconnect();
 }
+
+sub log
+{
+    open my $lh, ">>", 'error_log.txt' or die "Couldn't open file error_log.txt: $!";
+    say $lh '[' . DateTime -> now() . ']:  ' . shift;
+    close $lh;
+}
+
+local $SIG{__DIE__} = sub {
+    &log( @_ );
+};
