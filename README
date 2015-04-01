@@ -2,4 +2,7 @@ This script scrapes google. It eats filename of the file with a list of queries.
 Example usage:
 perl scraper.pl queries
 
+It's not really finished yet. It contains serious bugs. I published it just to meet "the deadline".
+I'll fix it later, at the moment I just want to go sleep.
+
 Test js task is here, too.
