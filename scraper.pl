@@ -60,7 +60,9 @@ sub get_info
     my $info = {};
     while ( my $response = $async -> wait_for_next_response() )
     {
-        push( $info -> { uri_unescape( $response -> base() -> as_string() ) }, &parse( $response ) );
+        my $url = uri_unescape( $response -> base() -> as_string() );
+        $info -> { $url } = [] unless ( $info -> { $url } );
+        push( $info -> { $url }, &parse( $response ) );
         $num_of_responses ++;
     }
 
@@ -73,19 +75,24 @@ sub parse
 
     my $tree = HTML::TreeBuilder -> new_from_content( $response -> content() );
 
-    my $parsing_first_page = $response -> base() -> as_string() !~ /&start=10$/;
+    my $parsing_first_page = $response -> base() -> query() !~ /&start=10$/;
 
-    if( $parsing_first_page
-        and
-        my @top_lis = $tree -> look_down( _tag => 'li', class => 'g' ) )
+    my @li_tags = $tree -> look_down( _tag => 'li', class => 'g' );
+
+    if( $response -> base() -> as_string() !~ /\?|&q=/ )
+    {
+        say "Google weirdly redirected";
+    }
+    elsif( $parsing_first_page )
     {
         my $rank = 1;
-        my @top_info = map { &parse_li( $_, $rank ++ ) } @top_lis;
+        my @top_info = map { &parse_li( $_, $rank ++ ) } @li_tags;
 
-        # There may be only 9 results on the first page (example query: "obama"). I think, it's due to images bar.
-        if( @top_lis < 10 )
+        # There may be only 9 results on the first page. I think, it's due to images bar.
+        if( @li_tags < 10 )
         {
-            my $there_is_second_page = $tree -> look_down( _tag => 'table', id => 'nav' );
+            my $nav_table = $tree -> look_down( _tag => 'table', id => 'nav' );
+            my $there_is_second_page = $nav_table ? $nav_table -> as_text() : 0;
             if( $there_is_second_page )
             {
                 &queue_requests( HTTP::Request -> new( GET => $response -> base() -> as_string() . '&start=10' ) );
@@ -94,10 +101,9 @@ sub parse
 
         return \@top_info;
     }
-    elsif( not $parsing_first_page
-           and
-           my $one_more_li = $tree -> look_down( _tag => 'li', class => 'g' ) -> [ 0 ] )
+    elsif( not $parsing_first_page )
     {
+        my $one_more_li = $li_tags[0];
         my $info = &parse_li( $one_more_li, 10 );
 
         return $info;
@@ -114,19 +120,19 @@ sub parse_li
 
     if( my $h3 = $li -> look_down( _tag => 'h3', 'class' => 'r' ) )
     {
+        my $descr = $li -> look_down( _tag => 'span', 'class' => 'st' );
         my $a = $h3 -> look_down( _tag => 'a' );
         return {
             rank        => $rank,
             url         => $a -> attr( 'href' ),
             title       => $a -> as_text(),
-            description => $li -> look_down( _tag => 'span', 'class' => 'st' ) -> as_text()
+            description => $descr ? $descr -> as_text() : ''
         };
     }
     else
     {
         die 'Unexpected behaviour';
     }
-
 }
 
 sub store_info
@@ -138,14 +144,24 @@ sub store_info
 
     for my $query ( keys $info )
     {
-        $dbh
-            -> prepare( "INSERT INTO queries ( query, rank, url, title, description, added ) VALUES ( ?, ?, ?, ?, ?, NOW() ) " )
-            -> execute(
-                $query,
-                $query -> { 'rank' },
-                $query -> { 'url' },
-                $query -> { 'title' },
-                $query -> { 'description' }
-            );
+        my $existing_query_id = $dbh -> selectrow_hashref( "SELECT FROM queries WHERE query = ?", $query ) -> { 'id' };
+        if( not $existing_query_id )
+        {
+            $dbh -> prepare( "INSERT INTO queries ( query ) VALUES ?" ) -> execute( $query );
+            $existing_query_id = $dbh -> last_insert_id();
+        }
+
+        for my $position ( $info -> { $query } )
+        {
+            $dbh
+                -> prepare( "INSERT INTO info ( query, rank, url, title, description, added ) VALUES ( ?, ?, ?, ?, ?, NOW() ) " )
+                -> execute(
+                    $existing_query_id,
+                    $position -> { 'rank' },
+                    $position -> { 'url' },
+                    $position -> { 'title' },
+                    $position -> { 'description' }
+                );
+        }
     }
 }
