@@ -5,11 +5,16 @@ use HTTP::Request;
 use HTML::TreeBuilder;
 use URI::Escape qw( uri_escape uri_unescape );
 use DBD::Pg;
+use List::MoreUtils qw( uniq );
+use Time::HiRes qw( time );
 
 
+my $start_time = time;
 my $path_to_file_with_queries = $ARGV[ 0 ];
 my $async = HTTP::Async -> new();
 my $url = "google.com/search?q=";
+my $num_of_requests = 0;
+my $num_of_responses = 0;
 
 if ( not $path_to_file_with_queries )
 {
@@ -25,15 +30,27 @@ else
     open( my $fh, '<', $path_to_file_with_queries )
         or die "Couldn't open file $path_to_file_with_queries: $!";
 
-    $async -> add( map { HTTP::Request -> new( $url . uri_escape( $_ ) ) } <$fh> );
+    my @queries = uniq( map { HTTP::Request -> new( $url . uri_escape( $_ ) ) } <$fh> );
+    &queue_requests( @queries );
 
     close( $fh );
 
     &store_info( &get_info() );
+
+    say "Num of unique queries: " . scalar( @queries );
+    say "Num of HTTP requests: " . $num_of_requests;
+    say "Num of HTTP responses: " . $num_of_responses;
+    say "Execution time (seconds): " . ( $start_time - time );
 }
 
 exit 0;
 
+
+sub queue_requests
+{
+    $async -> add( shift );
+    $num_of_requests ++;
+}
 
 sub get_info
 {
@@ -41,6 +58,7 @@ sub get_info
     while ( my $response = $async -> wait_for_next_response() )
     {
         push( $info -> { uri_unescape( $response -> base() ) }, &parse( $response ) );
+        $num_of_responses ++;
     }
 
     return $info;
@@ -66,7 +84,7 @@ sub parse
             my $second_page_exists = $tree -> look_down( _tag => 'table', id => 'nav' );
             if( $second_page_exists )
             {
-                $async -> add( HTTP::Request -> new( $response -> base() . '&start=10' ) );
+                &queue_requests( HTTP::Request -> new( $response -> base() . '&start=10' ) );
             }
         }
 
