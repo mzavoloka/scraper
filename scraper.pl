@@ -168,6 +168,7 @@ sub store_search_results
         }
     }
 
+    $dbh -> commit();
     $dbh -> disconnect();
 }
 
