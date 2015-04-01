@@ -1,8 +1,10 @@
 use Modern::Perl;
+use experimental qw( autoderef );
 use HTTP::Async;
 use HTTP::Request;
 use HTML::TreeBuilder;
 use URI::Escape qw( uri_escape uri_unescape );
+use DBD::Pg;
 
 
 my $path_to_file_with_queries = $ARGV[ 0 ];
@@ -22,15 +24,26 @@ else
 {
     open( my $fh, '<', $path_to_file_with_queries )
         or die "Couldn't open file $path_to_file_with_queries: $!";
+
     $async -> add( map { HTTP::Request -> new( $url . uri_escape( $_ ) ) } <$fh> );
+
     close( $fh );
 
-    my $top10_info = {};
+    &store_info( &get_info() );
+}
+
+exit 0;
+
+
+sub get_info
+{
+    my $info = {};
     while ( my $response = $async -> wait_for_next_response() )
     {
-        $top10_info -> { uri_unescape( $response -> base() ) } = &parse( $response );
+        push( $info -> { uri_unescape( $response -> base() ) }, &parse( $response ) );
     }
 
+    return $info;
 }
 
 sub parse
@@ -45,7 +58,7 @@ sub parse
     {
         my @top_divs = $tree -> look_down( _tag => 'div', class => 'rc' );
         my $rank = 1;
-        my @top_info = map { &get_info( $_, $rank ++ ) } @top_divs;
+        my @top_info = map { &parse_div( $_, $rank ++ ) } @top_divs;
 
         # There may be only 9 results on the first page (example query: "obama"). I think, it's due to images bar.
         if( @top_divs < 10 )
@@ -68,7 +81,7 @@ sub parse
     }
 }
 
-sub get_info
+sub parse_div
 {
     my ( $div, $rank ) = @_;
     my $a = $div -> look_down( _tag => 'h3', 'class' => 'r' ) -> look_down( _tag => 'a' );
@@ -79,4 +92,23 @@ sub get_info
         title       => $a -> as_text(),
         description => $div -> look_down( _tag => 'span', 'class' => 'st' ) -> as_text()
     };
+}
+
+sub store_info
+{
+    my $info = shift;
+
+    my $dbh = DBI -> connect( "dbi:Pg:dbname=postgres", "", "" );
+    for my $query ( keys $info )
+    {
+        $dbh
+            -> prepare( "INSERT INTO queries ( query, rank, url, title, description ) VALUES ( ?, ?, ?, ?, ? ) " )
+            -> execute(
+                $query,
+                $query -> { 'rank' },
+                $query -> { 'url' },
+                $query -> { 'title' },
+                $query -> { 'description' }
+            );
+    }
 }
