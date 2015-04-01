@@ -2,7 +2,7 @@ use Modern::Perl;
 use HTTP::Async;
 use HTTP::Request;
 use HTML::TreeBuilder;
-use URI::Escape qw( uri_escape );
+use URI::Escape qw( uri_escape uri_unescape );
 
 
 my $path_to_file_with_queries = $ARGV[ 0 ];
@@ -22,14 +22,13 @@ else
 {
     open( my $fh, '<', $path_to_file_with_queries )
         or die "Couldn't open file $path_to_file_with_queries: $!";
-
     $async -> add( map { HTTP::Request -> new( $url . uri_escape( $_ ) ) } <$fh> );
-
     close( $fh );
 
+    my $top10_info = {};
     while ( my $response = $async -> wait_for_next_response() )
     {
-        &parse( $response );
+        $top10_info -> { uri_unescape( $response -> base() ) } = &parse( $response );
     }
 
 }
@@ -40,16 +39,16 @@ sub parse
 
     my $tree = HTML::TreeBuilder -> new_from_content( $response -> content() );
 
-    my $parsing_first_page = response -> base() !~ /&start=10$/;
+    my $parsing_first_page = $response -> base() !~ /&start=10$/;
 
     if( $parsing_first_page )
     {
-        my @top10_divs = $tree -> look_down( _tag => 'div', class => 'rc' );
+        my @top_divs = $tree -> look_down( _tag => 'div', class => 'rc' );
         my $rank = 1;
-        my @top10_info = map { &get_info( $_, $rank ++ ) } @top10_divs;
+        my @top_info = map { &get_info( $_, $rank ++ ) } @top_divs;
 
         # There may be only 9 results on the first page (example query: "obama"). I think, it's due to images bar.
-        if( @top10_divs < 10 )
+        if( @top_divs < 10 )
         {
             my $second_page_exists = $tree -> look_down( _tag => 'table', id => 'nav' );
             if( $second_page_exists )
@@ -57,10 +56,15 @@ sub parse
                 $async -> add( HTTP::Request -> new( $response -> base() . '&start=10' ) );
             }
         }
+
+        return @top_info;
     }
     else # parsing second page
     {
         my $one_more_div = $tree -> look_down( _tag => 'div', class => 'rc' );
+        my $info = &get_info( $one_more_div, 10 );
+
+        return $info;
     }
 }
 
