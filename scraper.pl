@@ -38,7 +38,7 @@ else
 
     close( $fh );
 
-    &store_info( &get_info() );
+    &store_search_results( &get_search_results() );
 
     say "Num of unique queries: " . scalar( @queries );
     say "Num of HTTP requests: " . $num_of_requests;
@@ -55,18 +55,18 @@ sub queue_requests
     $num_of_requests += scalar @_;
 }
 
-sub get_info
+sub get_search_results
 {
-    my $info = {};
+    my $search_results = {};
     while ( my $response = $async -> wait_for_next_response() )
     {
         my $url = uri_unescape( $response -> base() -> as_string() );
-        $info -> { $url } = [] unless ( $info -> { $url } );
-        push( $info -> { $url }, &parse( $response ) );
+        $search_results -> { $url } = [] unless ( $search_results -> { $url } );
+        push( $search_results -> { $url }, &parse( $response ) );
         $num_of_responses ++;
     }
 
-    return $info;
+    return $search_results;
 }
 
 sub parse
@@ -86,7 +86,7 @@ sub parse
     elsif( $parsing_first_page )
     {
         my $rank = 1;
-        my @top_info = map { &parse_li( $_, $rank ++ ) } @li_tags;
+        my @top_search_results = map { &parse_li( $_, $rank ++ ) } @li_tags;
 
         # There may be only 9 results on the first page. I think, it's due to images bar.
         if( @li_tags < 10 )
@@ -99,14 +99,14 @@ sub parse
             }
         }
 
-        return \@top_info;
+        return \@top_search_results;
     }
     elsif( not $parsing_first_page )
     {
         my $one_more_li = $li_tags[0];
-        my $info = &parse_li( $one_more_li, 10 );
+        my $search_results = &parse_li( $one_more_li, 10 );
 
-        return $info;
+        return $search_results;
     }
     else
     {
@@ -135,14 +135,14 @@ sub parse_li
     }
 }
 
-sub store_info
+sub store_search_results
 {
-    my $info = shift;
+    my $search_results = shift;
 
     my $dbh = DBI -> connect( "dbi:Pg:", '', '', { AutoCommit => 0, RaiseError => 1 } )
         or die $DBI::errstr;
 
-    for my $query ( keys $info )
+    for my $query ( keys $search_results )
     {
         my $existing_query_id = $dbh -> selectrow_hashref( "SELECT FROM queries WHERE query = ?", $query ) -> { 'id' };
         if( not $existing_query_id )
@@ -151,10 +151,10 @@ sub store_info
             $existing_query_id = $dbh -> last_insert_id();
         }
 
-        for my $position ( $info -> { $query } )
+        for my $position ( $search_results -> { $query } )
         {
             $dbh
-                -> prepare( "INSERT INTO info ( query, rank, url, title, description, added ) VALUES ( ?, ?, ?, ?, ?, NOW() ) " )
+                -> prepare( "INSERT INTO search_results ( query, rank, url, title, description, added ) VALUES ( ?, ?, ?, ?, ?, NOW() ) " )
                 -> execute(
                     $existing_query_id,
                     $position -> { 'rank' },
