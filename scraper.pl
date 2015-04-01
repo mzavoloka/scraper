@@ -61,8 +61,8 @@ sub get_search_results
     while ( my $response = $async -> wait_for_next_response() )
     {
         my $url = uri_unescape( $response -> base() -> as_string() );
-        $search_results -> { $url } = [] unless ( $search_results -> { $url } );
-        push( $search_results -> { $url }, &parse( $response ) );
+        $search_results -> { $url } = () unless ( $search_results -> { $url } );
+        push( @{ $search_results -> { $url } }, &parse( $response ) );
         $num_of_responses ++;
     }
 
@@ -99,11 +99,11 @@ sub parse
             }
         }
 
-        return \@top_search_results;
+        return @top_search_results;
     }
     elsif( not $parsing_first_page )
     {
-        my $one_more_li = $li_tags[0];
+        my $one_more_li = $li_tags[ 0 ];
         my $search_results = &parse_li( $one_more_li, 10 );
 
         return $search_results;
@@ -144,14 +144,16 @@ sub store_search_results
 
     for my $query ( keys $search_results )
     {
-        my $existing_query_id = $dbh -> selectrow_hashref( "SELECT FROM queries WHERE query = ?", $query ) -> { 'id' };
-        if( not $existing_query_id )
+        my $existing_query = $dbh -> selectrow_hashref( "SELECT FROM queries WHERE query = ?", undef, $query );
+        my $existing_query_id = $existing_query ? $existing_query -> { 'id' } : undef;
+
+        unless( $existing_query_id )
         {
-            $dbh -> prepare( "INSERT INTO queries ( query ) VALUES ?" ) -> execute( $query );
-            $existing_query_id = $dbh -> last_insert_id();
+            $dbh -> prepare( "INSERT INTO queries ( query ) VALUES ( ? )" ) -> execute( $query );
+            $existing_query_id = $dbh -> last_insert_id( undef, undef, 'queries', 'id' );
         }
 
-        for my $position ( $search_results -> { $query } )
+        for my $position ( @{ $search_results -> { $query } } )
         {
             $dbh
                 -> prepare( "INSERT INTO search_results ( query, rank, url, title, description, added ) VALUES ( ?, ?, ?, ?, ?, NOW() ) " )
@@ -164,4 +166,6 @@ sub store_search_results
                 );
         }
     }
+
+    $dbh -> disconnect();
 }
