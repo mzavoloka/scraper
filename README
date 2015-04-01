@@ -1,0 +1,5 @@
+This script scrapes google. It eats filename of the file with a list of queries.
+Example usage:
+perl scraper.pl queries
+
+Test js task is here, too.
