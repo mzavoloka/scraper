@@ -99,11 +99,7 @@ sub parse
 
     my @li_tags = $tree -> look_down( _tag => 'li', class => 'g' );
 
-    if( $response -> base() -> as_string() !~ /\?|&q=/ )
-    {
-        &log( "Google weirdly redirected" );
-    }
-    elsif( $parsing_first_page )
+    if( $parsing_first_page )
     {
         my $rank = 1;
         my @top_search_results = map { &parse_li( $_, $rank ++ ) } @li_tags;
@@ -127,10 +123,6 @@ sub parse
         my $search_results = &parse_li( $one_more_li, 10 );
 
         return $search_results;
-    }
-    else
-    {
-        &log( "Couldn't process request: " . $response -> base() );
     }
 }
 

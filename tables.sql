@@ -1,3 +1,4 @@
+-- Your db must be configured to store utf8 properly.
 BEGIN;
 
 CREATE TABLE queries (
