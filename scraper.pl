@@ -3,7 +3,7 @@ use experimental qw( autoderef );
 use HTTP::Async;
 use HTTP::Request;
 use HTML::TreeBuilder;
-use URI::Escape qw( uri_escape uri_unescape );
+use URI::Escape qw( uri_escape );
 use DBI;
 use List::MoreUtils qw( uniq );
 use Time::HiRes qw( time );
@@ -13,9 +13,10 @@ use DateTime;
 my $start_time = time;
 my $path_to_file_with_queries = $ARGV[ 0 ];
 my $async = HTTP::Async -> new();
-my $url = "http://google.com/search?q=";
+my $base_url = "http://google.com/search?q=";
 my $num_of_requests = 0;
 my $num_of_responses = 0;
+my $request_url_to_query = {};
 
 if ( not $path_to_file_with_queries )
 {
@@ -30,18 +31,20 @@ else
 {
     open( my $fh, '<', $path_to_file_with_queries )
         or die "Couldn't open file $path_to_file_with_queries: $!";
-    
-    my @queries = uniq( map {
+
+    my @requests = uniq( map {
             $_ =~ s/\R//g;
-            HTTP::Request -> new( GET => $url . uri_escape( $_ ) );
+            my $url = $base_url . uri_escape( $_ );
+            $request_url_to_query -> { $url } = $_;
+            HTTP::Request -> new( GET => $url );
         } <$fh> );
-    &queue_requests( @queries );
+    &queue_requests( @requests );
 
     close( $fh );
 
     &store_search_results( &get_search_results() );
 
-    say "Num of unique queries: " . scalar( @queries );
+    say "Num of unique queries: " . scalar( @requests );
     say "Num of HTTP requests: " . $num_of_requests;
     say "Num of HTTP responses: " . $num_of_responses;
     say "Execution time (seconds): " . ( $start_time - time );
@@ -61,9 +64,25 @@ sub get_search_results
     my $search_results = {};
     while ( my $response = $async -> wait_for_next_response() )
     {
-        my $url = uri_unescape( $response -> base() -> as_string() );
-        $search_results -> { $url } = () unless ( $search_results -> { $url } );
-        push( @{ $search_results -> { $url } }, &parse( $response ) );
+        my $code = $response -> code();
+        my ( $first_response ) = $response -> redirects();
+        my $request_url = $first_response
+                          ?
+                          $first_response -> base() -> as_string()
+                          :
+                          $response -> redirects();
+
+        if( $code == 200 )
+        {
+            my $query = $request_url_to_query -> { $request_url };
+            $search_results -> { $query } = () unless ( $search_results -> { $query } );
+            push( @{ $search_results -> { $query } }, &parse( $response ) );
+        }
+        else
+        {
+            &log( "Error retrieving page by url: $request_url" );
+        }
+
         $num_of_responses ++;
     }
 
